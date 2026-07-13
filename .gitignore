@@ -2,3 +2,4 @@ dist/
 cache/
 .bundle/
 vendor/bundle/
+.DS_Store
