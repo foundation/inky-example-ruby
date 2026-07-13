@@ -41,6 +41,7 @@ cd ../inky-example-ruby
 bundle install                                    # pulls in inky-email via the path source, plus liquid
 ruby run_all.rb                                   # runs every examples/*/run.rb, writes dist/
 ruby run_all.rb --verify                          # same, plus greps every output for its required markers
+ruby tests/email_renderer_test.rb                 # EmailRenderer unit test (15 assertions)
 ```
 
 `ruby run_all.rb --verify` prints `NN-name: ok` for all ten. Output lands
@@ -85,6 +86,7 @@ bootstrap.rb             require + inky_example() dist-dir helper, shared by eve
 src/email_renderer.rb    small production-shaped render/theme/cache wrapper (example 09; the pattern example 10 adapts for a Liquid CMS)
 shared/                  brand layout, includes, SCSS themes used by examples 01-08
 examples/NN-name/        one directory per example: run.rb (tutorial) + verify.rb (smoke test)
+tests/                   unit tests (email_renderer_test.rb covers EmailRenderer injection/cache/error branches)
 dist/                    build output (generated, gitignored)
 run_all.rb               runs every example (ruby run_all.rb / --verify)
 send.rb                  multipart send demo reading example 05's output
