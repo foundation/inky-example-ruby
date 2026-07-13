@@ -1,0 +1,177 @@
+{% raw %}
+  newsletter.inky.liquid — an inky template that is ALSO a real Liquid
+  template.
+
+  NOTE ON THIS COMMENT'S OWN SYNTAX: this header is wrapped in Liquid's
+  raw-block tag pair (see this file's very first and very last lines),
+  not an HTML <!-- --> comment and not Liquid's comment-block tag,
+  precisely because the prose below needs to quote literal {{ }} / {% %}
+  syntax as examples, INCLUDING a nested for/endfor pair. An HTML comment
+  doesn't work: Liquid's lexer does not treat HTML comments as inert, it
+  tokenizes the entire file regardless of surrounding HTML, so a literal
+  "{% %}" inside an HTML comment is still parsed as a real (invalid) tag.
+  Liquid's comment-block tag doesn't work either, empirically: it still
+  parses nested block structure while swallowing its body, so a nested,
+  unbalanced-looking for/endfor pair quoted as prose inside one raised a
+  "tag was never closed" parse error. The raw-block tag pair wrapping
+  this whole header is Liquid's actual "everything until the literal
+  matching closing marker, no tokenizing at all" construct — the same
+  role Twig's {# #} plays in the PHP original. (Note, for the same
+  reason, that this prose avoids spelling out the raw-block's own
+  literal opening/closing tokens by name anywhere in the middle of this
+  block — writing the real closing token here would end the block
+  early, mid-sentence, which is exactly the bug this paragraph is
+  describing.) It's discarded before <layout> the same
+  way ordinary text would be (see inky-core's layout-prefix-trimming: it
+  discards everything before the <layout> tag regardless of what that
+  content is), so this block vanishes from the output in both orders
+  exactly like the PHP original's {# #} does.
+
+  ENGINE SUBSTITUTION NOTE (Ruby port of SUITE.md's 10-twig-cms): the PHP
+  reference suite uses Twig, integrating inky into the shape a Twig-based
+  CMS (Total CMS) takes. Twig has no Ruby port. Liquid is the pragmatic
+  Jinja-family substitute here — same {{ }}/{% %} delimiter family, same
+  filter-pipe syntax, same whitespace-control dashes, and (like the Twig
+  build here, which explicitly sets autoescape => false) no HTML
+  autoescaping by default, so the two orders below stay directly
+  comparable to their PHP counterparts. The two-orders + timing +
+  recipient-1-equality SHAPE below is the actual point of this example,
+  not which engine renders it — see run.rb's own header comment for the
+  Ruby-specific write-up filed in port-ruby-report.md.
+
+  This is a CMS-integrator note, written for someone wiring inky into a
+  Liquid-capable CMS: this file mixes inky's own tags (<layout>,
+  <container>, <raw>, ...) with real Liquid syntax ({{ }}, {% %},
+  filters). There are two valid orders to combine them — see run.rb one
+  level up, which builds both, times them, and asserts they agree for one
+  recipient.
+
+  This file lives inside emails/ — the self-contained base_path run.rb
+  passes to Inky.build (see emails/layouts/main.html for the base-root
+  resolution rule this whole tree follows: every src/href below is
+  root-relative, with no parent-directory traversal, regardless of which
+  file references it).
+
+  ORDER A — Liquid first, then inky (Inky.build, no data: option). Liquid
+  renders the FULL document — substituting every {{ }} and expanding the
+  {% for %} loop below — before inky ever sees it; inky then only does
+  component transform, SCSS, and CSS inlining. Simple, always correct,
+  but costs a full inky build PER RECIPIENT.
+
+  ORDER B — inky first (the CMS fast path), then Liquid per recipient.
+  Inky.build runs ONCE, with no data: option, on this raw file — all
+  Liquid syntax passes through untouched (inky's own MiniJinja merge step
+  is simply skipped when data: isn't passed; see 03-data-merge). That one
+  build does layout/include resolution, component transform, and CSS
+  inlining a single time, producing a "shell" that still contains literal
+  Liquid syntax — cache THAT instead of re-doing the inky build for every
+  recipient. Liquid then renders the cached shell per recipient, which is
+  far cheaper than a full inky build per recipient. This is the shape a
+  CMS wants: template content changes rarely, recipients don't.
+
+  THE <raw> RULE — and here it stops being optional, unlike the
+  defense-in-depth framing in 03-data-merge's comment. In Order B, the
+  {% for %} loop below has NOT been expanded yet when inky's HTML5-based
+  component transform runs over this file. A bare, un-wrapped
+  {% for %}...{% endfor %} sitting directly inside <table> (outside any
+  <tr>) is, as far as the HTML5 parser is concerned, stray non-table
+  text — the spec's foster-parenting rule relocates it OUT of the table
+  entirely, silently detaching the loop from the rows it's meant to
+  produce and corrupting the newsletter for every recipient. (Order A
+  never hits this: by the time inky sees the document, Liquid has already
+  expanded the loop into ordinary <tr> tags, which ARE valid table
+  content and are never foster-parented.) <raw> sidesteps the problem
+  because inky extracts <raw>...</raw> content BEFORE html5ever parses
+  anything at all, replacing it with an HTML COMMENT placeholder —
+  comments, unlike bare text, are legal directly inside <table>, so the
+  placeholder survives parsing exactly where it was, and the real
+  (untouched) content is spliced back in afterward. One thing NOT to draw
+  from this: <raw> content is re-injected before CSS inlining runs, so it
+  is NOT invisible to the inliner. The product rows below carry explicit
+  style="" attributes for a different reason — THIS example builds with
+  inline_css: false (see the CSS INLINING CONSTRAINT section below), so
+  no per-tag styles are inlined for anything in this document, and the
+  rows have to style themselves.
+
+  TWO MORE REAL QUIRKS THIS EXAMPLE HAD TO WORK AROUND, found empirically
+  while building the PHP original and reproduced here — all worth knowing
+  if you hit unexplained diffs between your own Order A/B outputs:
+
+  1. {%- for product in products -%} / {%- endfor -%} use Liquid's
+     explicit whitespace-control dashes, and the loop body is written
+     densely (no stray blank lines). Without the dashes, indentation
+     written around those two tags leaks into the loop body's own
+     leading/trailing text once Liquid expands it, and — because Order A
+     normalizes whitespace AFTER Liquid has expanded the loop into 3 rows,
+     while Order B normalizes the ONE-row shell BEFORE Liquid ever
+     duplicates it — that leakage isn't cleaned up the same way in both
+     orders. The dashes make the loop body's own whitespace fully explicit
+     instead of relying on default trimming heuristics.
+
+  2. Even with that, inky's pipeline-level cleanup (break_long_lines /
+     collapse_closing_tags in inky-core's pipeline.rs) inserts or folds
+     newlines around every <table>/<tbody>/<tr>/<td>/<th> tag it finds,
+     unconditionally, in whatever document is in front of it at the moment
+     it runs. Order A runs that cleanup on the FULLY-EXPANDED 3-row
+     document; Order B runs it ONCE on the 1-row shell, and Liquid's later
+     per-recipient duplication has no further inky pass to reconcile the
+     seams between copies. The visible symptom is a whitespace-only
+     difference in the padding directly between table tags at row
+     boundaries — never in the rows' actual content. run.rb's equality
+     check normalizes exactly that (and only that) before comparing — see
+     the comment there for why that's principled and not a cop-out.
+
+  CSS INLINING CONSTRAINT — both builds (Order A and Order B) must use
+  inline_css: false. CSS inlining runs a separate HTML5 parse over inky's
+  component-transform output. At shell-build time (Order B), the <raw>-
+  wrapped loop remains literal {% for %}/{% endfor %} text sitting beside a
+  <tr> inside <tbody>. That second parse's foster-parenting rules relocate
+  bare template text out of the table, the same failure mode that <raw>
+  prevents during the first parse. Setting inline_css: false sidesteps the
+  second parse entirely, keeping both orders byte-comparable (framework_css
+  still ships the compiled theme as a <style> block). See run.rb's comment
+  for the full detail. This constraint does not apply to templates that
+  merge all data before inky runs (see 09-transactional, which uses
+  inline_css: true).
+
+  Inky's OWN data: option (see 03-data-merge, 09-transactional) speaks a
+  MiniJinja dialect that is syntax-compatible with Liquid for the simple
+  cases used here — {{ var }}, {% if %}, {% for %} mean the same thing to
+  both engines. Reach for data: alone when a template only needs that.
+  Reach for real Liquid, as here, when you need something a CMS's own
+  Liquid environment already provides that data: can't: filters, tags,
+  custom drops, template inheritance. The loyalty_badge filter below
+  (registered in Ruby, in run.rb, via Liquid::Environment#register_filter)
+  is a genuinely Liquid-only feature — inky's data merge has no mechanism
+  for user-registered filters at all. (Twig's built-in |upper became
+  Liquid's built-in |upcase below — same idea, different engine's stdlib
+  spelling; this is the one filter-name change this port needed to make
+  beyond the engine substitution itself.)
+{% endraw %}
+<layout src="layouts/main.html" title="This week at Northwind Coffee">
+<link rel="stylesheet" href="themes/northwind.scss">
+<container>
+  <row>
+    <column lg="12">
+      <h1>Hey {{ subscriber.first_name }}, here's what's roasting</h1>
+      <p>{{ subscriber.tier | loyalty_badge }} members get first pick of this
+      week's small-batch arrivals before we open the list to everyone
+      else.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <th align="left">New arrival</th>
+          <th align="right">Price</th>
+        </tr>
+<raw>
+{%- for product in products -%}
+<tr>
+<td style="padding:8px 0;">{{ product.name | upcase }}</td>
+<td align="right" style="padding:8px 0;">${{ product.price }}</td>
+</tr>
+{%- endfor -%}
+</raw>
+</table>
+      <button href="{{ shop_url }}">Shop this week's arrivals</button>
+    </column>
+  </row>
+</container>
